@@ -182,8 +182,7 @@ export async function explainWord(
   const w = word.trim()
   if (!w) return ''
   if (!cfg.apiKey) {
-    // offline tiny fallback
-    return `銆?{w}銆嶏細璇烽厤缃?AI 鍚庢煡鐪嬮噴涔夈€?{contextEn ? `\n璇锛?{contextEn}` : ''}`
+    return `「${w}」：请配置 AI 后查看释义。${contextEn ? `\n语境：${contextEn}` : ''}`
   }
   try {
     return await chat(
@@ -192,19 +191,19 @@ export async function explainWord(
         {
           role: 'system',
           content:
-            '浣犳槸 Rehearse 閲岀殑娲绘臣瀹犵墿鐙愩€孭ip銆嶃€傜敤绠€鐭腑鏂囪В閲婅嫳鏂囪瘝锛?)璇嶆€?鎰忔€?2)涓€鍙ヤ汉璇?3)鍙€夋惌閰嶃€傛€婚暱鈮?0瀛椼€傝姘旇交蹇紝鍍忔湅鍙嬭创鑰宠锛屼笉瑕佹竻鍗曞紡闀挎枃銆?,
+            '你是 Rehearse 里的活泼宠物狐「Pip」。用简短中文解释英文词：1)词性+意思 2)一句人话 3)可选搭配。总长≤90字。语气轻快，像朋友贴耳说，不要清单式长文。',
         },
         {
           role: 'user',
           content: contextEn
-            ? `鍗曡瘝锛?{w}\n鍓т腑鍙ュ瓙锛?{contextEn}`
-            : `鍗曡瘝锛?{w}`,
+            ? `单词：${w}\n剧中句子：${contextEn}`
+            : `单词：${w}`,
         },
       ],
       0.4,
     )
   } catch {
-    return `銆?{w}銆嶆殏鏃舵煡涓嶅埌锛岀◢鍚庡啀璇曪綖`
+    return `「${w}」暂时查不到，稍后再试～`
   }
 }
 
@@ -259,8 +258,8 @@ export function buildFallbackExercises(
       return {
         ...base,
         type,
-        promptEn: `In this scene, someone faces this moment: 鈥?{truncate(sentence, 90)}鈥? Which word fits the attitude or key idea they express?`,
-        promptZh: `杩欎竴骞曢噷锛屼汉鐗╅潰瀵癸細鈥?{truncate(sentence, 60)}鈥濄€備粬浠〃杈剧殑鎬佸害/鍏抽敭鐐癸紝璇ョ敤鍝釜璇嶏紵`,
+        promptEn: `In this scene, someone faces this moment: "${truncate(sentence, 90)}". Which word fits the attitude or key idea they express?`,
+        promptZh: `这一幕里，人物面对：“${truncate(sentence, 60)}”。他们表达的态度/关键点，该用哪个词？`,
         why: 'Recalling the word from story detail beats memorizing a glossary row.',
       }
     }
@@ -269,7 +268,7 @@ export function buildFallbackExercises(
         ...base,
         type,
         promptEn: `Fill the missing word from the line:\n${blanked}`,
-        promptZh: `鏍规嵁鍓т腑鍙拌瘝濉┖锛歕n${blanked}`,
+        promptZh: `根据剧中台词填空：\n${blanked}`,
         why: 'Exact line retrieval strengthens form + context together.',
       }
     }
@@ -277,8 +276,8 @@ export function buildFallbackExercises(
       return {
         ...base,
         type,
-        promptEn: `Describe this beat in English using the episode鈥檚 preferred word (not a simpler synonym):\n${sentence}`,
-        promptZh: `鐢ㄦ湰闆嗘洿璐村垏鐨勯偅涓瘝琛ㄨ揪杩欎竴鎯呰妭锛堜笉瑕佺敤鏇寸畝鍗曠殑杩戜箟璇嶏級锛歕n${w.contextZh || sentence}`,
+        promptEn: `Describe this beat in English using the episode's preferred word (not a simpler synonym):\n${sentence}`,
+        promptZh: `用本集更贴切的那个词表达这一情节（不要用更简单的近义词）：\n${w.contextZh || sentence}`,
         why: 'Forces output of the specific lexical choice, not generic paraphrase.',
       }
     }
@@ -287,15 +286,15 @@ export function buildFallbackExercises(
         ...base,
         type,
         promptEn: `You are the speaker of this line. Under the same pressure, which word do you reach for?\nContext: ${truncate(sentence, 100)}`,
-        promptZh: `浣犳槸杩欏彞鍙拌瘝鐨勮璇濅汉銆傚悓鏍峰帇鍔涗笅锛屼綘浼氳劚鍙ｈ€屽嚭鍝釜璇嶏紵\n璇锛?{truncate(sentence, 80)}`,
-        why: 'Role framing mimics how kids are taught words: situation 鈫?word.',
+        promptZh: `你是这句台词的说话人。同样压力下，你会脱口而出哪个词？\n语境：${truncate(sentence, 80)}`,
+        why: 'Role framing mimics how kids are taught words: situation → word.',
       }
     }
     return {
       ...base,
       type: 'contrast' as const,
-      promptEn: `Why might the script prefer 鈥?{w.word}鈥?here rather than a blander near-synonym?\n${sentence}\nType the preferred word.`,
-      promptZh: `涓轰綍杩欓噷鏇村彲鑳界敤 鈥?{w.word}鈥?鑰屼笉鏄洿骞崇殑杩戜箟璇存硶锛焅n${sentence}\n璇峰啓鍑鸿璇嶃€俙,
+      promptEn: `Why might the script prefer "${w.word}" here rather than a blander near-synonym?\n${sentence}\nType the preferred word.`,
+      promptZh: `为何这里更可能用 "${w.word}" 而不是更平的近义说法？\n${sentence}\n请写出该词。`,
       why: 'Near-synonym contrast builds precision, not just recognition.',
     }
   })
@@ -352,7 +351,7 @@ function escapeReg(s: string) {
 }
 
 function truncate(s: string, n: number) {
-  return s.length <= n ? s : s.slice(0, n - 1) + '鈥?
+  return s.length <= n ? s : s.slice(0, n - 1) + '…'
 }
 
 export async function generateExercises(
@@ -378,7 +377,6 @@ export async function generateExercises(
   }))
 
   const system = `You are Rehearse, an English learning coach for Chinese speakers.
-
 Create output-first vocabulary drills from an episode script.
 Return STRICT JSON only: {"exercises":[...]}
 Each exercise:
@@ -456,4 +454,3 @@ export function gradeAnswer(exercise: Exercise, userAnswer: string): boolean {
     .filter(Boolean)
   return candidates.includes(a)
 }
-
