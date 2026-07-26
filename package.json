@@ -1,0 +1,96 @@
+{
+  "name": "rehearse",
+  "version": "1.0.0",
+  "description": "Watch. Capture. Rehearse. — Screen-level subtitle learning for English on Windows.",
+  "main": "dist-electron/main.js",
+  "author": "Rehearse contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Galloway0303/rehearse.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Galloway0303/rehearse/issues"
+  },
+  "homepage": "https://github.com/Galloway0303/rehearse#readme",
+  "keywords": [
+    "english-learning",
+    "subtitles",
+    "ocr",
+    "electron",
+    "vocabulary",
+    "language-learning",
+    "windows"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "vite",
+    "start": "electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "koffi": "^3.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "screenshot-desktop": "^1.15.0",
+    "tesseract.js": "^5.1.1",
+    "uuid": "^11.0.3",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vite-plugin-electron": "^0.28.8",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.rehearse.app",
+    "productName": "Rehearse",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "pass": true,
+  "meaning": "True mosaic = nearest-neighbor pixelate of VIDEO pixels. Resistance 7-8 means ~1–2 color tiles per Chinese glyph — unreadable at a glance. NOT CSS blur grid, NOT darken.",
+  "targetFriction": 7.5,
+  "cases": [
+    {
+      "w": 800,
+      "h": 40,
+      "tw": 36,
+      "th": 1,
+      "tiles": 36,
+      "frictionEst": 7.5,
+      "block": 22,
+      "pass": true,
+      "target": 7.5
+    },
+    {
+      "w": 800,
+      "h": 56,
+      "tw": 25,
+      "th": 1,
+      "tiles": 25,
+      "frictionEst": 7.5,
+      "block": 31,
+      "pass": true,
+      "target": 7.5
+    },
+    {
+      "w": 800,
+      "h": 72,
+      "tw": 20,
+      "th": 1,
+      "tiles": 20,
+      "frictionEst": 7.5,
+      "block": 39,
+      "pass": true,
+      "target": 7.5
+    },
+    {
+      "w": 800,
+      "h": 96,
+      "tw": 15,
+      "th": 1,
+      "tiles": 15,
+      "frictionEst": 7.5,
+      "block": 53,
+      "pass": true,
+      "target": 7.5
+    },
+    {
+      "w": 800,
+      "h": 120,
+      "tw": 12,
+      "th": 1,
+      "tiles": 12,
+      "frictionEst": 7.5,
+      "block": 66,
+      "pass": true,
+      "target": 7.5
+    }
+  ],
+  "liveMeta": {
+    "at": "2026-07-26T11:13:30.396Z",
+    "effect": "mosaic",
+    "frictionTarget": 7.5,
+    "frictionEst": 7.5,
+    "block": 64,
+    "strip": {
+      "x": 274,
+      "y": 1183,
+      "width": 1939,
+      "height": 117
+    },
+    "excludeOk": true,
+    "fps": 2,
+    "rawBytes": 74935,
+    "mosaicBytes": 1550,
+    "files": {
+      "raw": "cn-raw.png",
+      "mosaic": "cn-mosaic.png",
+      "side": "cn-side-by-side.png"
+    },
+    "note": "cn-raw = clean video (mask excluded from capture). cn-mosaic = true nearest-neighbor pixelate same pixels. Target resistance 7–8. NOT dimming / NOT CSS grid."
+  },
+  "liveRawExists": true,
+  "liveRawBytes": 74935,
+  "at": "2026-07-26T11:13:31.107Z"
+}

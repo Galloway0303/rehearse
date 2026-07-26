@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rehearse — Home</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+      background: #07080c;
+      color: #f4f1ea;
+      width: 1280px;
+      height: 800px;
+      overflow: hidden;
+    }
+    .app { display: flex; height: 100%; }
+    aside {
+      width: 220px;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      background: rgba(14,16,24,0.95);
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+    }
+    .brand { color: #f5b942; font-weight: 600; font-size: 18px; letter-spacing: -0.02em; }
+    .slogan { color: #8b909e; font-size: 11px; margin-top: 4px; }
+    nav { margin-top: 32px; display: flex; flex-direction: column; gap: 4px; }
+    .nav {
+      text-align: left;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: none;
+      background: transparent;
+      color: #c8c4ba;
+      font-size: 14px;
+    }
+    .nav.active { background: rgba(245,185,66,0.12); color: #f5b942; }
+    .tip {
+      margin-top: auto;
+      padding: 12px;
+      border-radius: 12px;
+      background: #12151f;
+      border: 1px solid rgba(255,255,255,0.05);
+      font-size: 11px;
+      color: #8b909e;
+      line-height: 1.45;
+    }
+    main { flex: 1; padding: 32px 36px; overflow: hidden; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+    .sub { color: #8b909e; font-size: 14px; margin-top: 6px; max-width: 520px; line-height: 1.5; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 24px; }
+    .card {
+      background: linear-gradient(160deg, #12151f, #0d1018);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 18px 20px;
+    }
+    .card .label { font-size: 12px; color: #8b909e; }
+    .card .value { font-size: 30px; font-weight: 600; color: #f5b942; margin-top: 6px; }
+    .card .value.muted { color: #f4f1ea; font-size: 18px; margin-top: 10px; }
+    .core {
+      margin-top: 18px;
+      border: 1px solid rgba(245,185,66,0.28);
+      border-radius: 16px;
+      padding: 22px;
+      background: #0e1119;
+    }
+    .core h2 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+    .core p { font-size: 13px; color: #b0ab9f; line-height: 1.55; margin-bottom: 14px; }
+    .effects { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      font-size: 12px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: #161a26;
+      color: #d8d3c8;
+    }
+    .chip.on { background: rgba(245,185,66,0.18); border-color: rgba(245,185,66,0.4); color: #f5b942; }
+    .actions { display: flex; gap: 10px; margin-top: 20px; }
+    .btn {
+      border: none;
+      border-radius: 12px;
+      padding: 11px 18px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: default;
+    }
+    .btn-primary { background: #f5b942; color: #1a1408; }
+    .btn-ghost { background: #1a1f2e; color: #e8e2d6; border: 1px solid rgba(255,255,255,0.08); }
+    .row2 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; margin-top: 16px; }
+    .hotkeys { font-size: 12px; color: #8b909e; line-height: 1.8; }
+    kbd {
+      display: inline-block;
+      background: #1a1f2e;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 1px 6px;
+      font-size: 11px;
+      color: #e8e2d6;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand">Rehearse</div>
+      <div class="slogan">Watch. Capture. Rehearse.</div>
+      <nav>
+        <div class="nav active">Home</div>
+        <div class="nav">Vocab</div>
+        <div class="nav">Sessions</div>
+        <div class="nav">Practice</div>
+        <div class="nav">Settings</div>
+      </nav>
+      <div class="tip">Open source · local-first learning</div>
+    </aside>
+    <main>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <h1>Home</h1>
+          <p class="sub">Cover Chinese only (real video EN stays). Low-friction word taps. Then rehearse lines after the episode.</p>
+        </div>
+        <div class="btn btn-ghost">中文</div>
+      </div>
+      <div class="stats">
+        <div class="card"><div class="label">Words captured</div><div class="value">24</div></div>
+        <div class="card"><div class="label">Due for review</div><div class="value muted">7</div></div>
+        <div class="card"><div class="label">Active session</div><div class="value muted">Demo Episode</div></div>
+      </div>
+      <div class="core">
+        <h2>Core: cover CN only · EN stays original</h2>
+        <p>Open effect catalog — liquid glass, shade wave, true mosaic, soft void… Live video sample under the mask. English uses the player’s own subtitles.</p>
+        <div class="effects">
+          <span class="chip on">Apple liquid glass</span>
+          <span class="chip">Heavy frost</span>
+          <span class="chip">True mosaic</span>
+          <span class="chip">Shade wave</span>
+          <span class="chip">Soft void</span>
+          <span class="chip">Gravity lens</span>
+        </div>
+        <div class="actions">
+          <div class="btn btn-primary">Start demo stream</div>
+          <div class="btn btn-ghost">Start Episode</div>
+          <div class="btn btn-ghost">Select subtitle region</div>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="card">
+          <div class="label">Freedom level · Standard</div>
+          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+            <span class="chip">Watch</span>
+            <span class="chip">Light</span>
+            <span class="chip on">Standard</span>
+            <span class="chip">Strict</span>
+            <span class="chip">Dictation</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">Hotkeys</div>
+          <div class="hotkeys" style="margin-top:10px">
+            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> Flash Chinese</div>
+            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Cycle freedom</div>
+            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> End episode</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rehearse — Watching</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 1280px;
+      height: 720px;
+      font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+      background: #0a0a0c;
+    }
+    .scene {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 35%, #2a3348 0%, transparent 55%),
+        linear-gradient(180deg, #1a1f2c 0%, #0c0e14 55%, #050608 100%);
+    }
+    .cinema {
+      position: absolute;
+      inset: 48px 80px 100px;
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(40,48,70,0.9), rgba(18,22,34,0.95)),
+        #12151f;
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow: 0 40px 80px rgba(0,0,0,0.55);
+      overflow: hidden;
+    }
+    .cinema::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 30% 40%, rgba(245,185,66,0.08), transparent 40%),
+        radial-gradient(circle at 70% 60%, rgba(94,200,255,0.06), transparent 35%);
+    }
+    .title-card {
+      position: absolute;
+      top: 28%;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      color: rgba(244,241,234,0.35);
+      font-size: 14px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+    .subs {
+      position: absolute;
+      left: 50%;
+      bottom: 72px;
+      transform: translateX(-50%);
+      width: min(720px, 80%);
+      text-align: center;
+    }
+    .en {
+      font-size: 26px;
+      font-weight: 600;
+      color: #fff;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.85);
+      line-height: 1.35;
+    }
+    .en .word {
+      border-bottom: 2px solid rgba(245,185,66,0.85);
+      padding: 0 2px;
+      cursor: default;
+    }
+    .cn-wrap {
+      margin: 14px auto 0;
+      position: relative;
+      height: 42px;
+      max-width: 560px;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .cn-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: #e8e2d6;
+      filter: blur(7px) saturate(0.7);
+      opacity: 0.55;
+      letter-spacing: 0.04em;
+    }
+    .cn-glass {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(220,230,245,0.22), rgba(30,36,52,0.55));
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+    }
+    .hud {
+      position: absolute;
+      top: 24px;
+      right: 28px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .pill {
+      background: rgba(10,12,18,0.78);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 12px;
+      color: #e8e2d6;
+      backdrop-filter: blur(10px);
+    }
+    .pill strong { color: #f5b942; font-weight: 600; }
+    .toast {
+      position: absolute;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20,24,36,0.92);
+      border: 1px solid rgba(245,185,66,0.35);
+      color: #f5b942;
+      font-size: 13px;
+      padding: 10px 18px;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+    }
+    .logo {
+      position: absolute;
+      top: 22px;
+      left: 28px;
+      color: #f5b942;
+      font-weight: 600;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    .caption {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #8b909e;
+      font-size: 13px;
+      letter-spacing: 0.02em;
+    }
+  </style>
+</head>
+<body>
+  <div class="scene">
+    <div class="logo">Rehearse</div>
+    <div class="hud">
+      <div class="pill">Freedom <strong>Standard</strong></div>
+      <div class="pill">OCR · live</div>
+    </div>
+    <div class="toast">Captured · leverage · Undo</div>
+    <div class="cinema">
+      <div class="title-card">Your player · any window</div>
+      <div class="subs">
+        <div class="en">If you're cornered, you don't need bravado — you need <span class="word">leverage</span>.</div>
+        <div class="cn-wrap">
+          <div class="cn-text">若被逼入绝境，你需要的不是虚张声势，而是筹码。</div>
+          <div class="cn-glass"></div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">Chinese covered on-screen · English from the original video · click words to capture</div>
+  </div>
+</body>
+</html>
