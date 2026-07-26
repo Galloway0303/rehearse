@@ -9,6 +9,17 @@ export default defineConfig({
     electron({
       main: {
         entry: 'electron/main.ts',
+        // Windows: restarting Electron via treeKill throws Access Denied and kills Vite.
+        // Start Electron once; main/preload rebuilds won't force-kill (restart app manually if needed).
+        onstart(args) {
+          const g = globalThis as typeof globalThis & { __rehearseElectronStarted?: boolean }
+          if (g.__rehearseElectronStarted) {
+            console.log('[electron] main rebuilt — skip restart (Windows stable mode)')
+            return
+          }
+          g.__rehearseElectronStarted = true
+          args.startup()
+        },
         vite: {
           build: {
             outDir: 'dist-electron',
@@ -17,7 +28,13 @@ export default defineConfig({
               formats: ['cjs'],
             },
             rollupOptions: {
-              external: ['screenshot-desktop', 'tesseract.js', 'electron', 'electron/main'],
+              external: [
+                'screenshot-desktop',
+                'tesseract.js',
+                'electron',
+                'electron/main',
+                'koffi',
+              ],
               output: {
                 entryFileNames: 'main.js',
                 format: 'cjs',
