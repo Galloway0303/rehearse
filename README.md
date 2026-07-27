@@ -35,8 +35,8 @@
 
 1. 打开 → [**最新 Release 下载页**](https://github.com/Galloway0303/rehearse/releases/latest)  
 2. 在页面底部 **Assets** 里下载其中一个：  
-   - **`Rehearse Setup 1.1.0.exe`** — 安装版（推荐，有安装向导）  
-   - **`Rehearse 1.1.0.exe`** — 绿色便携版，下载后直接双击  
+   - **`Rehearse.Setup.1.1.0.exe`** — 安装版（推荐，有安装向导）  
+   - **`Rehearse.1.1.0.exe`** — 绿色便携版，下载后直接双击  
 3. 运行后第一次可先点 **Demo 演示**，不用开视频也能走通流程。
 
 <p align="center">
