@@ -104,7 +104,12 @@ function electronPostJson(
   })
 }
 
-async function chat(ai: AiSettings, messages: ChatMessage[], temperature = 0.4): Promise<string> {
+async function chat(
+  ai: AiSettings,
+  messages: ChatMessage[],
+  temperature = 0.4,
+  maxTokens?: number,
+): Promise<string> {
   const cfg = resolveAiSettings(ai)
   if (!cfg.apiKey) throw new Error('No xAI credential (Settings / XAI_API_KEY)')
 
@@ -114,6 +119,7 @@ async function chat(ai: AiSettings, messages: ChatMessage[], temperature = 0.4):
     model: cfg.model,
     temperature,
     messages,
+    ...(maxTokens ? { max_tokens: maxTokens } : {}),
   })
 
   const { status, text } = await electronPostJson(
@@ -172,7 +178,7 @@ export async function translateEnToZh(ai: AiSettings, text: string): Promise<str
   return out.replace(/^["']|["']$/g, '')
 }
 
-/** Pet chat: word meaning for Chinese learners */
+/** Pet chat: compact word card — meaning + root cousins, few characters */
 export async function explainWord(
   ai: AiSettings,
   word: string,
@@ -182,28 +188,38 @@ export async function explainWord(
   const w = word.trim()
   if (!w) return ''
   if (!cfg.apiKey) {
-    return `「${w}」：请配置 AI 后查看释义。${contextEn ? `\n语境：${contextEn}` : ''}`
+    return `${w}\n（未配置 AI）`
   }
   try {
-    return await chat(
+    const out = await chat(
       cfg,
       [
         {
           role: 'system',
-          content:
-            '你是 Rehearse 里的活泼宠物狐「Pip」。用简短中文解释英文词：1)词性+意思 2)一句人话 3)可选搭配。总长≤90字。语气轻快，像朋友贴耳说，不要清单式长文。',
+          content: [
+            '你是 Pip，字幕旁的小词典。中文极简，禁废话。',
+            '严格按 3 行输出，总字数≤70：',
+            '1) 词性·中文意思（一行，≤18字）',
+            '2) 人话：结合语境一句（≤20字；无语境就举最短例句）',
+            '3) 词根：xxx → a / b / c（2～4 个同根或近形词，英文用 / 分隔，后面可跟极短中文）',
+            '不要编号标题、不要 markdown、不要空行灌水。',
+          ].join('\n'),
         },
         {
           role: 'user',
-          content: contextEn
-            ? `单词：${w}\n剧中句子：${contextEn}`
-            : `单词：${w}`,
+          content: contextEn ? `${w}\n句：${contextEn}` : w,
         },
       ],
-      0.4,
+      0.3,
+      110,
     )
+    // collapse excess blank lines from model
+    return out
+      .replace(/\n{3,}/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .trim()
   } catch {
-    return `「${w}」暂时查不到，稍后再试～`
+    return `${w}\n暂时查不到`
   }
 }
 

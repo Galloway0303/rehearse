@@ -1,7 +1,7 @@
 {
   "name": "rehearse",
-  "version": "1.0.0",
-  "description": "Watch. Capture. Rehearse. — Screen-level subtitle learning for English on Windows.",
+  "version": "1.1.0",
+  "description": "Watch. Capture. Rehearse. — Real-time GPU mask over live video + Pip vocab pet. Local-first English learning for Windows.",
   "main": "dist-electron/main.js",
   "author": "Rehearse contributors",
   "license": "MIT",
@@ -20,7 +20,8 @@
     "electron",
     "vocabulary",
     "language-learning",
-    "windows"
+    "windows",
+    "webgl"
   ],
   "scripts": {
     "dev": "vite",

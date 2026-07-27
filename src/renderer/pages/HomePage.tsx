@@ -180,8 +180,8 @@ export default function HomePage() {
           )}
           <p className="text-[11px] text-mist-400 mt-2">
             {locale === 'zh'
-              ? 'Ctrl+Shift+R 框选 · Ctrl+Shift+M 打开面板 · Ctrl+Shift+W 点词 · Ctrl+Shift+F 偷看中文'
-              : 'Ctrl+Shift+R select · Ctrl+Shift+M panel · Ctrl+Shift+W words · Ctrl+Shift+F peek'}
+              ? 'Ctrl+Shift+R 框选 · P 暂停选词 · W 点词条 · S 2秒选词 · F 偷看中文'
+              : 'Ctrl+Shift+R region · P pause-pick · W word bar · S 2s select · F peek'}
           </p>
           <p className="text-[11px] text-mist-400 mt-1">
             {locale === 'zh'
@@ -398,8 +398,8 @@ export default function HomePage() {
           </ol>
           <p className="text-xs text-mist-400">
             {locale === 'zh'
-              ? '偷看中文：Ctrl+Shift+F 或点遮罩。特效与比例随时可改。'
-              : 'Peek CN: Ctrl+Shift+F or click cover. Effect/ratio always changeable.'}
+              ? '暂停选词：Ctrl+Shift+P（抬遮罩+开点词）。偷看中文：F 或点遮罩。'
+              : 'Pause-pick: Ctrl+Shift+P. Peek CN: F or click cover.'}
           </p>
 
           <div className="pt-2">

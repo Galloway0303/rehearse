@@ -12,11 +12,13 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#privacy">Privacy</a> ·
-  <a href="#contributing">Contributing</a>
+  <a href="#contributing">Contributing</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-informational?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
   <img alt="Stack" src="https://img.shields.io/badge/stack-Electron%20%7C%20React%20%7C%20TypeScript-black?style=flat-square" />
 </p>
@@ -44,9 +46,11 @@ It works at the **screen** level — not locked to YouTube or Netflix DOM plugin
 | Area | What you get |
 |------|----------------|
 | **Universal capture** | Region OCR over any window (local player, browser, etc.) |
-| **Chinese friction** | Freedom levels + live mask effects (liquid glass, mosaic, shade wave, …) |
+| **Live GPU mask** | WebGL mosaic / liquid glass / blackhole / shade wave on live pixels |
 | **Keep English native** | Cover only the Chinese strip; original EN subtitles stay on the video |
-| **One-click vocab** | Tap a word on the assist HUD; undo; export CSV / Anki text |
+| **Pip 煤球** | Floating pet with EN chips; pause → open; short word cards + root cousins |
+| **Fast word feed** | Fingerprint-skip OCR, force refresh on pause/open, glued-word recovery |
+| **One-click vocab** | Tap a word; undo; export CSV / Anki text |
 | **Post-episode rehearse** | AI or offline template drills: situation, cloze, role, contrast |
 | **Local-first** | Sessions & vocab stored as JSON under app userData |
 | **Bilingual UI** | English / 中文 |
@@ -81,6 +85,8 @@ npm install
 copy .env.example .env
 # optional: put XAI_API_KEY=... in .env
 npm run electron:dev
+# Windows stable (recommended if Electron restarts thrash):
+npm run electron:dev:stable
 ```
 
 If Electron binaries fail to download in some networks:

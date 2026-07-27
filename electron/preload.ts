@@ -90,6 +90,8 @@ const api = {
     return () => ipcRenderer.removeListener('mask:update', listener)
   },
   petSetOpen: (open: boolean) => ipcRenderer.invoke('pet:setOpen', open),
+  petMoveBy: (dx: number, dy: number) => ipcRenderer.invoke('pet:moveBy', dx, dy),
+  petResizeTo: (width: number, height: number) => ipcRenderer.invoke('pet:resizeTo', width, height),
   petLookup: (word: string) => ipcRenderer.invoke('pet:lookup', word),
   onPetState: (cb: (s: unknown) => void) => {
     const listener = (_: unknown, s: unknown) => cb(s)
@@ -105,6 +107,23 @@ contextBridge.exposeInMainWorld('rehearseMask', {
     ipcRenderer.on('mask:update', listener)
     return () => ipcRenderer.removeListener('mask:update', listener)
   },
+  /** Fired after freeform region re-save so the live crop/stream rebinds. */
+  onRegionChanged: (cb: (rect: unknown) => void) => {
+    const listener = (_: unknown, rect: unknown) => cb(rect)
+    ipcRenderer.on('mask:regionChanged', listener)
+    return () => ipcRenderer.removeListener('mask:regionChanged', listener)
+  },
+})
+
+/**
+ * Claude version: realtime capture bridge for the mask window.
+ * getCaptureInfo → which screen to stream + exact CN strip rect (physical px).
+ * reportStatus  → tells main to pause its legacy 8fps screenshot loop.
+ */
+contextBridge.exposeInMainWorld('rehearseMaskLive', {
+  getCaptureInfo: () => ipcRenderer.invoke('maskLive:getCaptureInfo'),
+  reportStatus: (status: { active: boolean; mode?: string; fps?: number; error?: string }) =>
+    ipcRenderer.invoke('maskLive:status', status),
 })
 
 export type RehearseApi = typeof api

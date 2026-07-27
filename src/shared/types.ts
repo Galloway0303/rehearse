@@ -137,6 +137,10 @@ export interface AppSettings {
   /** @deprecated kept for migration 鈥?mapped to maskCoverRatio / side */
   maskCoverFrom?: number
   maskEffect: MaskEffectId
+  /** Pause (Ctrl+Shift+P) auto-opens Pip panel */
+  petAutoOpenOnPause: boolean
+  /** When film continues (unpause / new line while playing), auto-collapse Pip panel */
+  petAutoCollapseOnPlay: boolean
 }
 
 export interface AppStateSnapshot {
@@ -180,10 +184,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyReview: true,
   overlayClickThrough: true,
   chineseMirrorEffect: false,
-  // 涓枃鍦ㄤ笂銆佽嫳鏂囧湪涓嬶紙甯歌锛?  maskCnSide: 'top',
+  // 中文在上、英文在下（常见）
+  maskCnSide: 'top',
   maskCoverRatio: 0.5,
   // default: Apple-style liquid glass (beautiful + strong CN friction)
   maskEffect: 'liquid_glass',
+  petAutoOpenOnPause: true,
+  petAutoCollapseOnPlay: true,
 }
 
 export type MaskEffectGroup = 'cover' | 'glass' | 'motion' | 'hard'

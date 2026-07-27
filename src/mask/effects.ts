@@ -23,7 +23,8 @@ export type CoverEffect =
   | 'slow_blur' // 缓慢模糊 — gently drifting blur depth
   | 'blur'
 
-export const TARGET_FRICTION = 7.5
+/** Design score: 1 free · 7 hard-but-glyphs-remain · 10 gone. */
+export const TARGET_FRICTION = 7.0
 
 /**
  * Global animation tempo. Previous speeds were ~3–4× too fast for subtitle viewing.
@@ -44,10 +45,12 @@ export function blocksPerGlyphForFriction(friction = TARGET_FRICTION): number {
 export function blockSizeForFriction(height: number, friction = TARGET_FRICTION): number {
   const h = Math.max(8, height)
   const glyph = Math.max(12, h * 0.9)
-  const bpg = Math.max(0.55, blocksPerGlyphForFriction(friction))
+  // Mosaic clarity: use slightly lower friction so tiles are smaller / sharper
+  const mosaicF = Math.max(1, friction - 1.2)
+  const bpg = Math.max(0.55, blocksPerGlyphForFriction(mosaicF))
   const block = Math.round(glyph / bpg)
-  const minBlock = Math.max(10, Math.round(h * 0.32))
-  return Math.max(minBlock, Math.min(72, block))
+  const minBlock = Math.max(8, Math.round(h * 0.22))
+  return Math.max(minBlock, Math.min(56, block))
 }
 
 export function estimateFriction(stripHeight: number, block: number): number {
@@ -65,14 +68,14 @@ export function effectFrictionHint(effect: CoverEffect, stripH = 60): number {
       return 10
     case 'liquid_glass':
     case 'frost':
-      return 7.5
+      return 7.0
     case 'glass':
     case 'blur':
       return 6.0
     case 'shade_wave':
       return 7.0
     case 'soft_void':
-      return 7.4
+      return 7.0
     case 'veil':
       return 6.5
     case 'smoke':
@@ -82,13 +85,13 @@ export function effectFrictionHint(effect: CoverEffect, stripH = 60): number {
     case 'prism':
       return 6.6
     case 'ripple':
-      return 7.1
+      return 7.0
     case 'blackhole':
-      return 8.0
+      return 7.5
     case 'flip':
       return 7.0
     case 'slow_blur':
-      return 6.8
+      return 6.5
     default:
       return 6
   }
@@ -125,7 +128,8 @@ export function drawImageContainFill(
   w: number,
   h: number,
 ) {
-  const any = src as HTMLImageElement & HTMLCanvasElement & { videoWidth?: number }
+  const any = src as HTMLImageElement &
+    HTMLCanvasElement & { videoWidth?: number; videoHeight?: number }
   const iw =
     any.naturalWidth || any.videoWidth || any.width || (src as HTMLCanvasElement).width || w
   const ih =
@@ -144,7 +148,7 @@ export function drawImageContainFill(
 }
 
 export function drawSolid(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  ctx.fillStyle = '#000000'
+  ctx.fillStyle = '#030406'
   ctx.fillRect(0, 0, w, h)
 }
 
@@ -167,24 +171,7 @@ export function drawMosaic(
   ctx.imageSmoothingEnabled = false
   ctx.clearRect(0, 0, w, h)
   ctx.drawImage(tiny, 0, 0, tw, th, 0, 0, w, h)
-  if (friction >= 6) {
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'
-    ctx.fillRect(0, 0, w, h)
-  }
-  ctx.strokeStyle = 'rgba(0,0,0,0.2)'
-  ctx.lineWidth = 1
-  for (let x = block; x < w; x += block) {
-    ctx.beginPath()
-    ctx.moveTo(x + 0.5, 0)
-    ctx.lineTo(x + 0.5, h)
-    ctx.stroke()
-  }
-  for (let y = block; y < h; y += block) {
-    ctx.beginPath()
-    ctx.moveTo(0, y + 0.5)
-    ctx.lineTo(w, y + 0.5)
-    ctx.stroke()
-  }
+  // no dark plate / grid — crisp mosaic, clarity from smaller tiles
 }
 
 /**
@@ -193,40 +180,63 @@ export function drawMosaic(
  * Mental model: CSS `backdrop-filter: blur(24px) saturate(1.05)` +
  * `background: rgba(255,255,255,0.12)` on dark video → milky soft, not flashy.
  */
+/** 0..1 slow drift for regional soft plates (2D approximation). */
+function field01(timeMs: number, phase = 0): number {
+  const t = animT(timeMs, 0.4) + phase
+  return 0.5 + 0.5 * Math.sin(t)
+}
+
+/**
+ * Mild regional frost: base image stays mostly sharp, soft lobes add blur
+ * via low-alpha soft plates — NOT a strip-wide soup.
+ */
+function mildRegionalFrost(
+  ctx: CanvasRenderingContext2D,
+  src: CanvasImageSource,
+  w: number,
+  h: number,
+  timeMs: number,
+  blurSoft = 5,
+) {
+  ctx.clearRect(0, 0, w, h)
+  drawImageContainFill(ctx, src, w, h)
+  // one light global frost (clearable)
+  blurPass(ctx, ctx.canvas, w, h, 2)
+  // softer regional lobes via dark-milk gradients (reads as partial frost)
+  const t = animT(timeMs, 0.45)
+  for (let i = 0; i < 3; i++) {
+    const cx = ((Math.sin(t + i * 1.7) * 0.5 + 0.5) * 0.8 + 0.1) * w
+    const rw = w * (0.22 + (i % 2) * 0.08)
+    const g = ctx.createLinearGradient(cx - rw, 0, cx + rw, 0)
+    const a = 0.08 + field01(timeMs, i) * 0.10
+    g.addColorStop(0, 'rgba(0,0,0,0)')
+    g.addColorStop(0.5, `rgba(30,32,38,${a})`)
+    g.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, w, h)
+  }
+  // second light pass only where soft — approximate with medium blur at low alpha
+  const tmp = ensureTmp(w, h)
+  const tctx = tmp.getContext('2d')!
+  tctx.clearRect(0, 0, w, h)
+  tctx.drawImage(ctx.canvas, 0, 0)
+  blurPass(tctx, tmp, w, h, blurSoft)
+  ctx.globalAlpha = 0.35 + field01(timeMs) * 0.2
+  ctx.drawImage(tmp, 0, 0)
+  ctx.globalAlpha = 1
+}
+
 export function drawLiquidGlass(
   ctx: CanvasRenderingContext2D,
   src: CanvasImageSource,
   w: number,
   h: number,
-  _timeMs = 0,
+  timeMs = 0,
 ) {
-  ctx.clearRect(0, 0, w, h)
-  // base: true content
-  drawImageContainFill(ctx, src, w, h)
-
-  // heavy multi-pass frost blur (stronger — user asked for more blur)
-  blurPass(ctx, ctx.canvas, w, h, 16)
-  blurPass(ctx, ctx.canvas, w, h, 10)
-  blurPass(ctx, ctx.canvas, w, h, 6)
-  blurPass(ctx, ctx.canvas, w, h, 3)
-
-  // soft desaturate toward grey glass (not blue neon)
-  ctx.fillStyle = 'rgba(160, 165, 172, 0.12)'
+  // soft frost — see shapes, not blackout
+  mildRegionalFrost(ctx, src, w, h, timeMs, 6)
+  ctx.fillStyle = `rgba(18,20,26,${0.10 + field01(timeMs) * 0.06})`
   ctx.fillRect(0, 0, w, h)
-
-  // milky frosted plate — muted, matte (NOT bright white flash)
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.14)'
-  ctx.fillRect(0, 0, w, h)
-  // slight warm-neutral veil so glyphs dissolve
-  ctx.fillStyle = 'rgba(28, 30, 34, 0.28)'
-  ctx.fillRect(0, 0, w, h)
-
-  // hairline only — no specular blob, no caustic
-  ctx.strokeStyle = 'rgba(255,255,255,0.14)'
-  ctx.lineWidth = 1
-  ctx.strokeRect(0.5, 0.5, w - 1, h - 1)
-  ctx.strokeStyle = 'rgba(0,0,0,0.12)'
-  ctx.strokeRect(1.5, 1.5, w - 3, h - 3)
 }
 
 export function drawFrost(
@@ -234,16 +244,10 @@ export function drawFrost(
   src: CanvasImageSource,
   w: number,
   h: number,
+  timeMs = 0,
 ) {
-  ctx.clearRect(0, 0, w, h)
-  drawImageContainFill(ctx, src, w, h)
-  blurPass(ctx, ctx.canvas, w, h, 18)
-  blurPass(ctx, ctx.canvas, w, h, 10)
-  blurPass(ctx, ctx.canvas, w, h, 5)
-  // denser frost, still matte
-  ctx.fillStyle = 'rgba(220, 224, 230, 0.22)'
-  ctx.fillRect(0, 0, w, h)
-  ctx.fillStyle = 'rgba(20, 22, 26, 0.32)'
+  mildRegionalFrost(ctx, src, w, h, timeMs, 7)
+  ctx.fillStyle = `rgba(16,18,24,${0.12 + field01(timeMs, 0.5) * 0.06})`
   ctx.fillRect(0, 0, w, h)
 }
 
@@ -252,14 +256,10 @@ export function drawGlass(
   src: CanvasImageSource,
   w: number,
   h: number,
+  timeMs = 0,
 ) {
-  ctx.clearRect(0, 0, w, h)
-  drawImageContainFill(ctx, src, w, h)
-  blurPass(ctx, ctx.canvas, w, h, 12)
-  blurPass(ctx, ctx.canvas, w, h, 6)
-  ctx.fillStyle = 'rgba(255,255,255,0.08)'
-  ctx.fillRect(0, 0, w, h)
-  ctx.fillStyle = 'rgba(12,14,18,0.28)'
+  mildRegionalFrost(ctx, src, w, h, timeMs, 5)
+  ctx.fillStyle = `rgba(14,16,20,${0.08 + field01(timeMs, 1.1) * 0.05})`
   ctx.fillRect(0, 0, w, h)
 }
 
@@ -270,42 +270,26 @@ export function drawShadeWave(
   h: number,
   timeMs = 0,
 ) {
+  // 可见动态：横移 + 呼吸幅度（animT 已含 0.28 全局减速）
   ctx.clearRect(0, 0, w, h)
   drawImageContainFill(ctx, src, w, h)
-  blurPass(ctx, ctx.canvas, w, h, 10)
-  blurPass(ctx, ctx.canvas, w, h, 5)
-  const t = animT(timeMs, 0.7)
-  for (let i = 0; i < 5; i++) {
-    const phase = t + i * 1.3
-    const cx = ((Math.sin(phase) * 0.5 + 0.5) * 0.85 + 0.075) * w
-    const rw = w * (0.18 + (i % 3) * 0.06)
-    const g = ctx.createLinearGradient(cx - rw, 0, cx + rw, 0)
-    g.addColorStop(0, 'rgba(0,0,0,0)')
-    g.addColorStop(0.35, `rgba(0,0,0,${0.55 + (i % 2) * 0.15})`)
-    g.addColorStop(0.5, `rgba(0,0,0,${0.78 + (i % 2) * 0.1})`)
-    g.addColorStop(0.65, `rgba(0,0,0,${0.55 + (i % 2) * 0.15})`)
-    g.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = g
-    ctx.fillRect(0, 0, w, h)
-  }
-  const gy = (Math.sin(t * 0.7) * 0.5 + 0.5) * h
-  const vg = ctx.createLinearGradient(0, gy - h * 0.4, 0, gy + h * 0.4)
-  vg.addColorStop(0, 'rgba(0,0,0,0.15)')
-  vg.addColorStop(0.5, 'rgba(0,0,0,0)')
-  vg.addColorStop(1, 'rgba(0,0,0,0.35)')
-  ctx.fillStyle = vg
+  const tMove = animT(timeMs, 3.6)
+  const tBreath = animT(timeMs, 2.4)
+  const breath = 0.5 + 0.5 * Math.sin(tBreath)
+  const floor = 0.4 + breath * 0.12
+  const peak = 0.9 + breath * 0.08
+  ctx.fillStyle = `rgba(0,0,0,${floor})`
   ctx.fillRect(0, 0, w, h)
-  for (let i = 0; i < 3; i++) {
-    const px = w * (0.2 + 0.3 * i) + Math.sin(t + i) * w * 0.08
-    const py = h * (0.35 + 0.15 * Math.cos(t * 1.1 + i))
-    const r = Math.max(h, w * 0.12) * (0.55 + 0.15 * Math.sin(t + i * 2))
-    const rg = ctx.createRadialGradient(px, py, 0, px, py, r)
-    rg.addColorStop(0, 'rgba(0,0,0,0.85)')
-    rg.addColorStop(0.55, 'rgba(0,0,0,0.35)')
-    rg.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = rg
-    ctx.fillRect(0, 0, w, h)
-  }
+  const cx = ((Math.sin(tMove) * 0.5 + 0.5) * 0.55 + 0.22) * w
+  const rw = w * (0.36 + breath * 0.08)
+  const g = ctx.createLinearGradient(cx - rw, 0, cx + rw, 0)
+  g.addColorStop(0, 'rgba(0,0,0,0)')
+  g.addColorStop(0.32, `rgba(0,0,0,${(peak - floor) * 0.55})`)
+  g.addColorStop(0.5, `rgba(0,0,0,${peak - floor})`)
+  g.addColorStop(0.68, `rgba(0,0,0,${(peak - floor) * 0.55})`)
+  g.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, w, h)
 }
 
 export function drawSoftVoid(
@@ -317,17 +301,15 @@ export function drawSoftVoid(
 ) {
   ctx.clearRect(0, 0, w, h)
   drawImageContainFill(ctx, src, w, h)
-  blurPass(ctx, ctx.canvas, w, h, 7)
-  const pulse = 0.94 + Math.sin(animT(timeMs, 0.5)) * 0.04
+  blurPass(ctx, ctx.canvas, w, h, 2)
+  ctx.fillStyle = 'rgba(0,0,0,0.30)'
+  ctx.fillRect(0, 0, w, h)
+  const pulse = 0.98 + Math.sin(animT(timeMs, 0.2)) * 0.02
   const cx = w * 0.5
   const cy = h * 0.5
-  const rx = w * 0.55 * pulse
-  const ry = h * 0.85 * pulse
-  const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, Math.max(rx, ry))
-  g.addColorStop(0, 'rgba(0,0,0,0.92)')
-  g.addColorStop(0.35, 'rgba(0,0,0,0.72)')
-  g.addColorStop(0.62, 'rgba(0,0,0,0.35)')
-  g.addColorStop(0.82, 'rgba(0,0,0,0.1)')
+  const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, Math.max(w * 0.65, h) * pulse)
+  g.addColorStop(0, 'rgba(0,0,0,0.55)')
+  g.addColorStop(0.55, 'rgba(0,0,0,0.28)')
   g.addColorStop(1, 'rgba(0,0,0,0)')
   ctx.fillStyle = g
   ctx.fillRect(0, 0, w, h)
@@ -342,9 +324,9 @@ export function drawVeil(
 ) {
   ctx.clearRect(0, 0, w, h)
   drawImageContainFill(ctx, src, w, h)
-  blurPass(ctx, ctx.canvas, w, h, 5)
-  const a = 0.55 + Math.sin(animT(timeMs, 0.45)) * 0.05
-  ctx.fillStyle = `rgba(6,8,12,${a})`
+  blurPass(ctx, ctx.canvas, w, h, 2)
+  const a = 0.48 + Math.sin(animT(timeMs, 0.2)) * 0.06
+  ctx.fillStyle = `rgba(0,0,0,${a})`
   ctx.fillRect(0, 0, w, h)
 }
 
@@ -357,21 +339,21 @@ export function drawSmoke(
 ) {
   ctx.clearRect(0, 0, w, h)
   drawImageContainFill(ctx, src, w, h)
-  blurPass(ctx, ctx.canvas, w, h, 9)
-  const t = animT(timeMs, 0.55)
-  for (let i = 0; i < 6; i++) {
-    const x = ((i / 6 + Math.sin(t + i) * 0.1 + 1) % 1) * w
-    const y = h * (0.3 + 0.4 * Math.sin(t * 0.7 + i * 0.9))
-    const r = h * (0.6 + 0.3 * Math.sin(t + i))
+  blurPass(ctx, ctx.canvas, w, h, 3)
+  ctx.fillStyle = 'rgba(0,0,0,0.28)'
+  ctx.fillRect(0, 0, w, h)
+  const t = animT(timeMs, 0.24)
+  for (let i = 0; i < 3; i++) {
+    const x = ((i / 3 + Math.sin(t + i) * 0.08 + 1) % 1) * w
+    const y = h * (0.4 + 0.2 * Math.sin(t * 0.5 + i))
+    const r = h * (0.65 + 0.2 * Math.sin(t + i))
     const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-    g.addColorStop(0, 'rgba(20,22,28,0.75)')
-    g.addColorStop(0.5, 'rgba(10,12,16,0.35)')
+    g.addColorStop(0, 'rgba(0,0,0,0.45)')
+    g.addColorStop(0.55, 'rgba(0,0,0,0.18)')
     g.addColorStop(1, 'rgba(0,0,0,0)')
     ctx.fillStyle = g
     ctx.fillRect(0, 0, w, h)
   }
-  ctx.fillStyle = 'rgba(0,0,0,0.28)'
-  ctx.fillRect(0, 0, w, h)
 }
 
 export function drawPrism(
@@ -440,8 +422,8 @@ export function drawGlitch(
 }
 
 /**
- * 倒过来 — flip the live strip 180° (and slight darken).
- * Chinese becomes upside-down: high friction, zero twitchy motion.
+ * 倒过来 — flip the live strip 180°.
+ * Friction = inverted glyphs (hard to read), NOT fog. Keep sharp at score ~7.
  */
 export function drawFlip(
   ctx: CanvasRenderingContext2D,
@@ -456,14 +438,13 @@ export function drawFlip(
   ctx.translate(-w / 2, -h / 2)
   drawImageContainFill(ctx, src, w, h)
   ctx.restore()
-  // light plate so inverted glyphs don't pop as easily
-  ctx.fillStyle = 'rgba(0,0,0,0.22)'
+  // almost no plate — friction is the inversion itself
+  ctx.fillStyle = 'rgba(0,0,0,0.04)'
   ctx.fillRect(0, 0, w, h)
 }
 
 /**
- * 缓慢模糊 — blur depth breathes over ~6–8s (not flashy).
- * down factor oscillates gently between light soft and heavy frost.
+ * 缓慢模糊 — regional soft/clear field that drifts (not strip-wide soup).
  */
 export function drawSlowBlur(
   ctx: CanvasRenderingContext2D,
@@ -472,17 +453,8 @@ export function drawSlowBlur(
   h: number,
   timeMs = 0,
 ) {
-  ctx.clearRect(0, 0, w, h)
-  drawImageContainFill(ctx, src, w, h)
-  const phase = animT(timeMs, 0.9)
-  const breathe = 0.5 + 0.5 * Math.sin(phase)
-  // deeper blur range than before
-  const heavy = 6 + Math.round(breathe * 14)
-  blurPass(ctx, ctx.canvas, w, h, Math.max(4, Math.floor(heavy * 0.6)))
-  if (heavy >= 10) blurPass(ctx, ctx.canvas, w, h, Math.max(4, Math.floor(heavy * 0.4)))
-  if (heavy >= 14) blurPass(ctx, ctx.canvas, w, h, 3)
-  const plate = 0.22 + breathe * 0.22
-  ctx.fillStyle = `rgba(18,20,24,${plate})`
+  mildRegionalFrost(ctx, src, w, h, timeMs, 6)
+  ctx.fillStyle = `rgba(12,14,18,${0.05 + field01(timeMs) * 0.06})`
   ctx.fillRect(0, 0, w, h)
 }
 
@@ -612,10 +584,10 @@ export function drawCoverEffect(
       drawLiquidGlass(ctx, src, w, h, timeMs)
       break
     case 'frost':
-      drawFrost(ctx, src, w, h)
+      drawFrost(ctx, src, w, h, timeMs)
       break
     case 'glass':
-      drawGlass(ctx, src, w, h)
+      drawGlass(ctx, src, w, h, timeMs)
       break
     case 'shade_wave':
       drawShadeWave(ctx, src, w, h, timeMs)
@@ -654,8 +626,12 @@ export function drawCoverEffect(
 
 export function effectNeedsAnimation(effect: CoverEffect | string): boolean {
   const e = normalizeEffect(String(effect))
-  // liquid_glass is static frosted plate — no rAF needed
+  // All blur materials breathe — must keep painting even when video freezes
   return (
+    e === 'liquid_glass' ||
+    e === 'frost' ||
+    e === 'glass' ||
+    e === 'blur' ||
     e === 'shade_wave' ||
     e === 'soft_void' ||
     e === 'veil' ||

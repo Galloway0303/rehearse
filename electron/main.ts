@@ -1,3 +1,4 @@
+import { claudeStreamActive } from './claude-live'
 import {
   app,
   BrowserWindow,
@@ -24,7 +25,20 @@ import {
   mergeSettingsFromRenderer,
 } from './store'
 import screenshot from 'screenshot-desktop'
-import { captureRegion, captureRegionColor, captureRegionTop, ocrImage, splitBilingual, disposeOcr } from './ocr'
+import {
+  captureRegion,
+  captureRegionColor,
+  captureRegionTop,
+  captureRegionFromScreen,
+  grabScreen,
+  invalidateScreenCache,
+  regionFingerprint,
+  ocrImage,
+  splitBilingual,
+  disposeOcr,
+  unglueToken,
+  warmOcr,
+} from './ocr'
 import { excludeWindowFromCapture } from './win-affinity'
 import {
   testAi,
@@ -91,6 +105,19 @@ let maskWindow: BrowserWindow | null = null
 let ocrTimer: NodeJS.Timeout | null = null
 let ocrRunning = false
 let lastOcrText = ''
+/** Last good EN words for Pip — keep showing when a tick fails */
+let lastPetWords: string[] = []
+let lastPetLine = ''
+let petPanelOpen = false
+/** Remember pet top-left so open/close/OCR never jumps the window. */
+let petPos: { x: number; y: number } | null = null
+/** Open-panel size (user-resizable). */
+let petOpenSize = { width: 320, height: 420 }
+/** Skip Tesseract when EN strip pixels haven't changed. */
+let lastOcrFingerprint = ''
+/** User invoked pause/pet — must re-OCR even if fingerprint matches. */
+let ocrForceNext = false
+let ocrForceQueued = false
 let demoTimer: NodeJS.Timeout | null = null
 let demoIndex = 0
 let demoMode = false
@@ -117,7 +144,8 @@ let maskFrameCount = 0
 let maskFpsWindowStart = Date.now()
 let maskVerifyTick = 0
 /** Target Chinese reading resistance 1–10 (mosaic block sizing). User wants 7–8. */
-const MASK_FRICTION = 7.5
+/** Design score: 1 free · 7 hard-but-glyphs-remain · 10 gone. */
+const MASK_FRICTION = 7.0
 const MASK_FRAME_MS = 120 // target ~8 fps; full-screen shot is the bottleneck
 
 function preloadPath() {
@@ -475,8 +503,9 @@ async function writeMaskVerifyArtifacts(rawB64: string) {
     const tw = Math.max(1, Math.floor(w / block))
     const th = Math.max(1, Math.floor(h / block))
     const tiny = img.resize({ width: tw, height: th, quality: 'better' })
-    // nearest upscale = AE mosaic tiles
-    let mosaiced = tiny.resize({ width: w, height: h, quality: 'nearest' })
+    // nearest upscale = AE mosaic tiles ('nearest' is accepted at runtime but
+    // missing from Electron's ResizeOptions union — cast keeps behaviour)
+    let mosaiced = tiny.resize({ width: w, height: h, quality: 'nearest' as 'good' })
     // slight darken for residual glyph contrast kill
     try {
       const bmp = mosaiced.toBitmap()
@@ -574,6 +603,10 @@ function startMaskFrameLoop() {
   pushMaskUpdate()
   const tick = async () => {
     if (maskFrameBusy) return
+    if (claudeStreamActive()) {
+      // Claude live stream renders the mask — skip legacy BitBlt capture
+      return
+    }
     if (!maskWindow || maskWindow.isDestroyed() || !maskWindow.isVisible()) return
     if (Date.now() < chineseRevealUntil) {
       pushMaskUpdate(null)
@@ -627,14 +660,41 @@ function stopMaskFrameLoop() {
   maskFrameBusy = false
 }
 
+function defaultPetPos(w = 100, h = 110) {
+  const d = screen.getPrimaryDisplay()
+  return {
+    x: d.bounds.x + d.bounds.width - w - 20,
+    y: d.bounds.y + d.bounds.height - h - 40,
+  }
+}
+
+/** Primary display only — limited range (user preferred this over free roam). */
+function clampPetPos(x: number, y: number, w: number, h: number) {
+  const b = screen.getPrimaryDisplay().bounds
+  const margin = 4
+  return {
+    x: Math.max(b.x + margin, Math.min(b.x + b.width - w - margin, Math.round(x))),
+    y: Math.max(b.y + margin, Math.min(b.y + b.height - h - margin, Math.round(y))),
+  }
+}
+
+function clampPetOpenSize(w: number, h: number) {
+  return {
+    width: Math.max(300, Math.min(520, Math.round(w))),
+    height: Math.max(360, Math.min(640, Math.round(h))),
+  }
+}
+
 function createPetWindow() {
   if (petWindow && !petWindow.isDestroyed()) return
-  const d = screen.getPrimaryDisplay()
+  const w = 100
+  const h = 110
+  if (!petPos) petPos = defaultPetPos(w, h)
   petWindow = new BrowserWindow({
-    width: 100,
-    height: 110,
-    x: d.bounds.x + d.bounds.width - 120,
-    y: d.bounds.y + d.bounds.height - 160,
+    width: w,
+    height: h,
+    x: petPos.x,
+    y: petPos.y,
     transparent: true,
     frame: false,
     resizable: false,
@@ -661,26 +721,200 @@ function createPetWindow() {
   petWindow.on('closed', () => {
     petWindow = null
   })
-}
-
-function pushPetState() {
-  if (!petWindow || petWindow.isDestroyed()) return
-  const db = loadDb()
-  const words = (currentSubtitle?.en || '')
-    .split(/[^A-Za-z']+/)
-    .filter((w) => w.length > 2)
-    .slice(0, 10)
-  petWindow.webContents.send('pet:state', {
-    locale: db.settings.locale,
-    recentWords: words,
-    contextEn: currentSubtitle?.en || '',
+  petWindow.on('moved', () => {
+    if (!petWindow || petWindow.isDestroyed()) return
+    const b = petWindow.getBounds()
+    petPos = { x: b.x, y: b.y }
   })
 }
 
-function showPet() {
+/**
+ * Closed-class / ultra-common tokens — useless as "new vocab" chips.
+ * Full sentence still available in the open panel for context.
+ */
+const PET_STOP_WORDS = new Set(
+  [
+    // pronouns / determiners
+    'a', 'an', 'the', 'i', 'im', 'ive', 'id', 'ill', 'me', 'my', 'mine', 'myself',
+    'we', 'us', 'our', 'ours', 'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers',
+    'it', 'its', 'they', 'them', 'their', 'theirs', 'this', 'that', 'these', 'those',
+    // be / do / have / modals
+    'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+    'do', 'does', 'did', 'done', 'have', 'has', 'had',
+    'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must',
+    // prepositions / conjunctions / particles
+    'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'as', 'into', 'onto',
+    'up', 'out', 'off', 'over', 'under', 'about', 'than', 'then', 'and', 'or', 'but', 'so', 'if',
+    'not', 'no', 'nor', 'yet', 'too', 'very', 'just', 'also', 'only', 'even', 'still',
+    'more', 'most', 'some', 'any', 'all', 'each', 'both', 'few', 'many', 'much', 'such',
+    // deictics / fillers
+    'here', 'there', 'where', 'when', 'what', 'who', 'how', 'why', 'which',
+    'yes', 'yeah', 'yep', 'ok', 'okay', 'oh', 'ah', 'uh', 'um',
+    // numbers / quantifiers that read as noise on chips
+    'one', 'two', 'three', 'four', 'five', 'once',
+    // ultra-common A1 verbs — clog chips, rarely "worth tapping" as unknown
+    'get', 'got', 'go', 'goes', 'went', 'gone', 'come', 'came', 'give', 'gave', 'given',
+    'take', 'took', 'taken', 'make', 'made', 'know', 'knew', 'think', 'thought',
+    'want', 'need', 'look', 'see', 'saw', 'say', 'said', 'tell', 'told', 'let', 'put',
+  ].map((w) => w.toLowerCase()),
+)
+
+/** Any Latin token (for OCR scoring / full-line presence). Splits glued blobs. */
+function extractLatinWords(text: string): string[] {
+  if (!text) return []
+  // Prefer whitespace split first so normal lines stay intact
+  const rough = text.split(/[^A-Za-z'’-]+/).filter(Boolean)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw0 of rough) {
+    // long glued token → lexicon split (e.g. whatthehell → what the hell)
+    const pieces = raw0.length >= 8 ? unglueToken(raw0) : [raw0]
+    for (const raw of pieces) {
+      const w = raw.replace(/^['’-]+|['’-]+$/g, '')
+      if (w.length < 2) continue
+      if (!/[aeiouyAEIOUY]/.test(w) && w.length < 4) continue
+      // still-glued junk after unglue → drop (don't show as one fake word)
+      if (w.length > 16) continue
+      const key = w.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(w)
+      if (out.length >= 24) return out
+    }
+  }
+  return out
+}
+
+/**
+ * Content words for Pip chips — skip function words / OCR junk like "to i one give".
+ * Prefer longer tokens (more likely worth learning).
+ */
+function extractContentWords(text: string): string[] {
+  const raw = extractLatinWords(text)
+  const content = raw.filter((w) => {
+    const k = w.toLowerCase()
+    if (PET_STOP_WORDS.has(k)) return false
+    if (w.length < 4) return false // drop "to" "i" "me" leftovers
+    // OCR garbage: all caps short / repeated letters
+    if (/^(.)\1{2,}$/i.test(w)) return false
+    return true
+  })
+  // longer first, keep order stable among same length
+  content.sort((a, b) => b.length - a.length || 0)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const w of content) {
+    const k = w.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(w)
+    if (out.length >= 8) break
+  }
+  return out
+}
+
+function pushPetState(extra?: { open?: boolean }) {
+  if (!petWindow || petWindow.isDestroyed()) return
+  const db = loadDb()
+  if (extra?.open !== undefined) petPanelOpen = extra.open
+  const line = (currentSubtitle?.en || lastPetLine || '').trim()
+  const content = extractContentWords(line || currentSubtitle?.raw || '')
+  // Sticky chips: only replace when we have real content words.
+  // Never wipe on empty / stop-word-only OCR — that was "suddenly disappears".
+  if (content.length) {
+    lastPetWords = content
+    if (currentSubtitle?.en) lastPetLine = currentSubtitle.en
+  } else if (line && !lastPetLine) {
+    lastPetLine = line
+  }
+  const words = lastPetWords
+  petWindow.webContents.send('pet:state', {
+    locale: db.settings.locale,
+    recentWords: words,
+    contextEn: line || lastPetLine,
+    open: petPanelOpen,
+  })
+  // collapsed with chips needs a wider bubble so words are actually visible
+  if (!petPanelOpen) layoutPetCollapsed(words.length > 0)
+}
+
+/**
+ * Soft keep-on-screen: only nudge if window is almost fully off primary.
+ * Does NOT re-home the pet to a corner.
+ */
+function softKeepOnScreen(x: number, y: number, w: number, h: number) {
+  const b = screen.getPrimaryDisplay().bounds
+  let nx = Math.round(x)
+  let ny = Math.round(y)
+  if (nx + w < b.x + 48) nx = b.x + 48 - w
+  if (ny + h < b.y + 48) ny = b.y + 48 - h
+  if (nx > b.x + b.width - 48) nx = b.x + b.width - 48
+  if (ny > b.y + b.height - 48) ny = b.y + b.height - 48
+  return { x: nx, y: ny }
+}
+
+/**
+ * Screen coords of the coal ball center.
+ * Collapsed: bottom-center of window.
+ * Open: bottom-RIGHT of window (panel grows up+left from the pet).
+ */
+function petCoalAnchor(cur: Electron.Rectangle, isOpen: boolean) {
+  if (isOpen) {
+    // open: soot docked bottom-right (~50px inset)
+    return { x: cur.x + cur.width - 50, y: cur.y + cur.height - 50 }
+  }
+  return { x: cur.x + Math.floor(cur.width / 2), y: cur.y + cur.height - 38 }
+}
+
+/** Place window so coal stays at fixed screen point. */
+function boundsAroundCoal(
+  coal: { x: number; y: number },
+  width: number,
+  height: number,
+  mode: 'collapsed' | 'open',
+) {
+  let x: number
+  let y: number
+  if (mode === 'open') {
+    // coal = bottom-right of panel
+    x = Math.round(coal.x - (width - 50))
+    y = Math.round(coal.y - (height - 50))
+  } else {
+    // coal = bottom-center of small window
+    x = Math.round(coal.x - width / 2)
+    y = Math.round(coal.y - (height - 38))
+  }
+  return { ...softKeepOnScreen(x, y, width, height), width, height }
+}
+
+function layoutPetCollapsed(hasWords: boolean) {
+  if (!petWindow || petWindow.isDestroyed() || petPanelOpen) return
+  const width = hasWords ? 280 : 100
+  const height = hasWords ? 150 : 110
+  const cur = petWindow.getBounds()
+  const coal = petCoalAnchor(cur, false)
+  const next = boundsAroundCoal(coal, width, height, 'collapsed')
+  if (
+    cur.width === next.width &&
+    cur.height === next.height &&
+    cur.x === next.x &&
+    cur.y === next.y
+  ) {
+    return
+  }
+  petPos = { x: next.x, y: next.y }
+  petWindow.setBounds(next)
+  petWindow.setIgnoreMouseEvents(false)
+  petWindow.showInactive()
+}
+
+/** Show pet window. forceOcr only for user-invoked pause/open — not every mask repaint. */
+function showPet(opts?: { forceOcr?: boolean }) {
   createPetWindow()
   petWindow?.showInactive()
   pushPetState()
+  if (opts?.forceOcr) requestOcrRefresh('showPet')
+  else ensureWordFeed()
 }
 
 function hidePet() {
@@ -690,27 +924,65 @@ function hidePet() {
 function setPetOpen(open: boolean) {
   if (!petWindow || petWindow.isDestroyed()) createPetWindow()
   if (!petWindow) return
-  const d = screen.getPrimaryDisplay()
+  const cur = petWindow.getBounds()
+  const wasOpen = petPanelOpen
+  // Freeze coal on screen — panel grows/shrinks toward top-left
+  const coal = petCoalAnchor(cur, wasOpen)
+  petPanelOpen = open
+
   if (open) {
-    petWindow.setBounds({
-      width: 300,
-      height: 380,
-      x: d.bounds.x + d.bounds.width - 320,
-      y: Math.max(40, d.bounds.y + d.bounds.height - 420),
-    })
+    const size = clampPetOpenSize(petOpenSize.width, petOpenSize.height)
+    petOpenSize = size
+    const next = boundsAroundCoal(coal, size.width, size.height, 'open')
+    petPos = { x: next.x, y: next.y }
+    petWindow.setBounds(next)
     petWindow.setIgnoreMouseEvents(false)
     petWindow.show()
     petWindow.focus()
+    // Immediate UI, then force OCR — never open and sit idle
+    pushPetState({ open: true })
+    requestOcrRefresh('petOpen')
   } else {
-    petWindow.setBounds({
-      width: 100,
-      height: 110,
-      x: d.bounds.x + d.bounds.width - 120,
-      y: d.bounds.y + d.bounds.height - 160,
-    })
+    const width = lastPetWords.length > 0 ? 280 : 100
+    const height = lastPetWords.length > 0 ? 150 : 110
+    const next = boundsAroundCoal(coal, width, height, 'collapsed')
+    petPos = { x: next.x, y: next.y }
+    petWindow.setBounds(next)
+    petWindow.setIgnoreMouseEvents(false)
     petWindow.showInactive()
+    pushPetState({ open: false })
   }
-  pushPetState()
+}
+
+/** Move pet by delta (DIP). Limited to primary display while dragging. */
+function movePetBy(dx: number, dy: number) {
+  if (!petWindow || petWindow.isDestroyed()) return null
+  const b = petWindow.getBounds()
+  const pos = clampPetPos(b.x + dx, b.y + dy, b.width, b.height)
+  petPos = pos
+  petWindow.setBounds({ ...b, x: pos.x, y: pos.y })
+  return pos
+}
+
+/**
+ * Resize open panel keeping BOTTOM-RIGHT fixed (coal stays put).
+ * Dragging the top-left edge of the window effectively.
+ */
+function resizePetTo(width: number, height: number) {
+  if (!petWindow || petWindow.isDestroyed() || !petPanelOpen) return null
+  const size = clampPetOpenSize(width, height)
+  petOpenSize = size
+  const cur = petWindow.getBounds()
+  const brX = cur.x + cur.width
+  const brY = cur.y + cur.height
+  const x = brX - size.width
+  const y = brY - size.height
+  const pos = softKeepOnScreen(x, y, size.width, size.height)
+  // if soft-keep moved BR, re-anchor BR from original
+  const fixed = softKeepOnScreen(brX - size.width, brY - size.height, size.width, size.height)
+  petPos = { x: fixed.x, y: fixed.y }
+  petWindow.setBounds({ width: size.width, height: size.height, x: fixed.x, y: fixed.y })
+  return { ...size, x: fixed.x, y: fixed.y }
 }
 
 function showMaskForSession() {
@@ -745,6 +1017,8 @@ function previewMaskNow() {
   pushMaskUpdate()
   startMaskFrameLoop()
   showPet()
+  // Words for Pip come from OCR — must run even without a full episode session
+  ensureWordFeed()
   return true
 }
 
@@ -972,6 +1246,17 @@ type RegionShotMeta = {
 }
 
 let pendingRegionShot: RegionShotMeta | null = null
+/** Control panel was visible before the picker hid it → restore on cancel. */
+let regionRestoreMain = false
+
+function restorePanelAfterPick() {
+  if (!regionRestoreMain) return
+  regionRestoreMain = false
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+}
 
 /**
  * Fullscreen-friendly free select:
@@ -987,6 +1272,19 @@ async function openFreeformRegionPick() {
     regionWindow = null
   }
   pendingRegionShot = null
+
+  // Our own control panel / pet sit on top of the movie. If they are still
+  // visible the freeze frame is a picture of Rehearse, not of the video —
+  // then the user frames a box over our own UI. Hide, let the compositor
+  // settle, shoot, and remember to bring the panel back if they cancel.
+  const wasMainVisible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+  const wasPetVisible = Boolean(petWindow && !petWindow.isDestroyed() && petWindow.isVisible())
+  regionRestoreMain = wasMainVisible
+  if (wasMainVisible) mainWindow?.hide()
+  if (wasPetVisible) petWindow?.hide()
+  if (wasMainVisible || wasPetVisible) {
+    await new Promise((r) => setTimeout(r, 260))
+  }
 
   const display = screen.getPrimaryDisplay()
   const s = display.scaleFactor || 1
@@ -1045,6 +1343,7 @@ async function openFreeformRegionPick() {
     } catch {
       /* ignore */
     }
+    restorePanelAfterPick()
     return
   }
 
@@ -1097,6 +1396,7 @@ async function openFreeformRegionPick() {
     }
     regionWindow = null
     pendingRegionShot = null
+    restorePanelAfterPick()
   })
 
   if (isDev) {
@@ -1200,38 +1500,195 @@ async function applySubtitle(line: SubtitleLine) {
  */
 let ocrBusy = false
 
+/**
+ * Start EN word OCR whenever mask/pet is up — not only after "开始本集".
+ * Previously preview/region-save showed Pip with empty chips because ocrRunning
+ * stayed false until a full session.
+ */
+function wordFeedIntervalMs() {
+  // Pause / open pet: poll harder so chips feel live
+  if (pausedForDictation || petPanelOpen) return 700
+  const configured = loadDb().settings.ocr.intervalMs
+  if (typeof configured === 'number' && configured >= 800 && configured <= 1400) return configured
+  return 1000
+}
+
+function ensureWordFeed() {
+  if (demoMode) return
+  const db = loadDb()
+  if (!db.settings.region) return
+  const ms = wordFeedIntervalMs()
+  if (ocrRunning) {
+    // re-arm interval if pace should change (pause vs play)
+    if (ocrTimer) {
+      clearInterval(ocrTimer)
+      ocrTimer = setInterval(() => {
+        void tickOcr()
+      }, ms)
+    }
+    return
+  }
+  ocrRunning = true
+  if (ocrTimer) clearInterval(ocrTimer)
+  ocrTimer = setInterval(() => {
+    void tickOcr()
+  }, ms)
+  void warmOcr((db.settings.ocr.lang as 'eng') || 'eng')
+  void tickOcr()
+  console.log('[rehearse] word feed OCR started', ms, 'ms')
+  pushState()
+}
+
+let lastForceOcrAt = 0
+
+/**
+ * User invoked pause / coal / open panel — must update NOW.
+ * Clears skip caches; if a tick is mid-flight, queues another.
+ * Debounced so mask repaint storms don't thrash Tesseract.
+ */
+function requestOcrRefresh(reason: string) {
+  const now = Date.now()
+  // always paint sticky state immediately so UI never feels dead
+  pushPetState()
+  if (now - lastForceOcrAt < 280 && ocrBusy) {
+    ocrForceQueued = true
+    ocrForceNext = true
+    return
+  }
+  lastForceOcrAt = now
+  console.log('[ocr] force refresh:', reason)
+  lastOcrFingerprint = ''
+  ocrForceNext = true
+  invalidateScreenCache()
+  ensureWordFeed()
+  if (ocrBusy) {
+    ocrForceQueued = true
+    return
+  }
+  void tickOcr()
+}
+
 async function tickOcr() {
   if (!ocrRunning || demoMode) return
-  if (ocrBusy) return
+  if (ocrBusy) {
+    // someone asked for a force while busy — run again after
+    if (ocrForceNext) ocrForceQueued = true
+    return
+  }
   if (regionWindow && !regionWindow.isDestroyed()) return
   if (pinMode !== 'idle') return
   const db = loadDb()
   const region = db.settings.region
   if (!region) return
 
+  const force = ocrForceNext
+  ocrForceNext = false
   ocrBusy = true
   try {
-    // OCR English strip only (opposite of CN cover) — never hide CN mask
+    // One desktop grab for the whole tick (force = fresh, no 90ms cache)
+    const screenBuf = await grabScreen(force)
     const enBand = enStripPhysical(region)
-    const png = enBand ? await captureRegion(enBand) : await captureRegion(region)
-    const raw = await ocrImage(png, db.settings.ocr.lang)
+    const primary = enBand && enBand.height >= 8 ? enBand : region
 
-    if (!raw || raw.replace(/\s/g, '').length < 3) return
-    if (raw === lastOcrText) return
-    if (lastOcrText && similarity(lastOcrText, raw) > 0.88) return
-    lastOcrText = raw
-    const parts = splitBilingual(raw)
+    // Skip Tesseract if strip pixels unchanged — unless user forced
+    const fp = regionFingerprint(screenBuf, primary)
+    if (
+      !force &&
+      fp === lastOcrFingerprint &&
+      (lastPetWords.length > 0 || lastOcrText)
+    ) {
+      return
+    }
+
+    const lang = (db.settings.ocr.lang || 'eng') as 'eng' | 'chi_sim' | 'eng+chi_sim'
+
+    let bestRaw = ''
+    let bestEn = ''
+    let bestZh = ''
+    let bestWords: string[] = []
+
+    const tryBand = async (band: ScreenRect) => {
+      if (band.width < 24 || band.height < 8) return // too thin for Tesseract
+      const png = await captureRegionFromScreen(screenBuf, band)
+      const raw = await ocrImage(png, lang)
+      if (!raw || raw.replace(/\s/g, '').length < 2) return
+      const words = extractLatinWords(raw)
+      const parts = splitBilingual(raw)
+      const enFromParts = parts.en && extractLatinWords(parts.en).length ? parts.en : ''
+      const en = (enFromParts || (words.length ? words.join(' ') : '')).trim()
+      if (
+        words.length > bestWords.length ||
+        (words.length >= bestWords.length && en.length > bestEn.length)
+      ) {
+        bestWords = words
+        bestEn = en
+        bestZh = parts.zh || ''
+        bestRaw = raw
+      }
+    }
+
+    // Prefer EN strip only (faster + cleaner). Full box only if weak OR force.
+    await tryBand(primary)
+    if ((bestWords.length < 2 || force) && primary !== region) {
+      await tryBand(region)
+    }
+
+    lastOcrFingerprint = fp
+
+    if (!bestRaw || bestWords.length === 0) {
+      // sticky: keep last good chips / line — still push so open panel refreshes
+      pushPetState()
+      return
+    }
+    // force path: always accept new read even if similar
+    if (!force) {
+      if (bestRaw === lastOcrText) {
+        pushPetState()
+        return
+      }
+      if (lastOcrText && similarity(lastOcrText, bestRaw) > 0.92) {
+        pushPetState()
+        return
+      }
+    }
+    lastOcrText = bestRaw
+    lastPetLine = bestEn
+    const content = extractContentWords(bestEn || bestRaw)
+    if (content.length) lastPetWords = content
+    // force / pause: always push pet immediately before heavier subtitle apply
+    pushPetState()
+    // 播放中出新台词 → 可选自动收起（暂停学习时绝不收）
+    {
+      const s = loadDb().settings
+      if (
+        s.petAutoCollapseOnPlay !== false &&
+        petPanelOpen &&
+        !pausedForDictation &&
+        bestEn &&
+        bestEn !== (currentSubtitle?.en || '')
+      ) {
+        setPetOpen(false)
+      }
+    }
     await applySubtitle({
       id: randomUUID(),
-      en: parts.en || raw,
-      zh: parts.zh || '',
+      en: bestEn,
+      zh: bestZh,
       t: Date.now(),
-      raw,
+      raw: bestRaw,
     })
   } catch (e) {
     console.error('OCR tick failed', e)
+    pushPetState()
   } finally {
     ocrBusy = false
+    if (ocrForceQueued) {
+      ocrForceQueued = false
+      ocrForceNext = true
+      lastOcrFingerprint = ''
+      invalidateScreenCache()
+      void tickOcr()
+    }
   }
 }
 
@@ -1445,30 +1902,101 @@ function flashChinese() {
   // Peek: hide CN cover only — English was never covered
   chineseRevealUntil = Date.now() + 1200
   pushMaskUpdate()
-  if (maskWindow && !maskWindow.isDestroyed()) {
-    maskWindow.setOpacity(0)
+  const win = maskWindow
+  if (win && !win.isDestroyed()) {
+    try {
+      win.setOpacity(0)
+    } catch {
+      /* ignore */
+    }
     setTimeout(() => {
       chineseRevealUntil = 0
-      if (maskWindow && !maskWindow.isDestroyed()) {
-        maskWindow.setOpacity(1)
-        pushMaskUpdate()
+      try {
+        if (maskWindow && !maskWindow.isDestroyed()) {
+          maskWindow.setOpacity(1)
+          pushMaskUpdate()
+        }
+      } catch {
+        /* ignore */
       }
+      pushState()
+    }, 1200)
+  } else {
+    // still clear the reveal flag if mask was gone mid-peek
+    setTimeout(() => {
+      chineseRevealUntil = 0
+      pushMaskUpdate()
       pushState()
     }, 1200)
   }
   pushState()
 }
 
-function enterSelectMode() {
-  selectModeUntil = Date.now() + 2000
+function enterSelectMode(ms = 2000) {
+  selectModeUntil = Date.now() + ms
   setOverlayClickThrough(false)
   pushState()
   setTimeout(() => {
+    // Pause learning holds select mode open until unpause
+    if (pausedForDictation) return
+    if (Date.now() < selectModeUntil - 50) return
     selectModeUntil = 0
     const db = loadDb()
-    if (db.settings.overlayClickThrough) setOverlayClickThrough(true)
+    if (db.settings.overlayClickThrough !== false) setOverlayClickThrough(true)
     pushState()
-  }, 2000)
+  }, ms)
+}
+
+/**
+ * Learning pause — the "pause then pick words" moment.
+ * Not a half-flag: lift CN cover, open word bar + pet chips, keep clicks live
+ * until you unpause. This is the core capture step of the loop.
+ */
+function setPausedForLearning(on: boolean) {
+  pausedForDictation = on
+  const db = loadDb()
+  if (on) {
+    chineseRevealUntil = Date.now() + 24 * 60 * 60 * 1000
+    if (maskWindow && !maskWindow.isDestroyed()) {
+      maskWindow.setOpacity(0)
+    }
+    pushMaskUpdate()
+    setWordAssist(true)
+    setOverlayClickThrough(false)
+    selectModeUntil = Date.now() + 24 * 60 * 60 * 1000
+    // Instant sticky paint, then force OCR (mask already lifted)
+    pushPetState()
+    // 暂停 → 自动弹出煤球（无新 UI，只是打开面板）
+    if (db.settings.petAutoOpenOnPause !== false) {
+      showPet() // setPetOpen forces OCR — don't double-force here
+      setPetOpen(true)
+    } else {
+      requestOcrRefresh('pause')
+    }
+    try {
+      new Notification({
+        title: 'Rehearse',
+        body: '已暂停：遮罩抬起，Pip 已打开。Ctrl+Shift+P 继续播放。',
+      }).show()
+    } catch {
+      /* ignore */
+    }
+  } else {
+    chineseRevealUntil = 0
+    selectModeUntil = 0
+    if (maskWindow && !maskWindow.isDestroyed()) {
+      maskWindow.setOpacity(1)
+    }
+    pushMaskUpdate()
+    if (db.settings.overlayClickThrough !== false) setOverlayClickThrough(true)
+    // 继续播放 → 可选自动收起
+    if (db.settings.petAutoCollapseOnPlay !== false && petPanelOpen) {
+      setPetOpen(false)
+    }
+    // back to normal poll pace
+    ensureWordFeed()
+  }
+  pushState()
 }
 
 function registerHotkeys() {
@@ -1507,8 +2035,7 @@ function registerHotkeys() {
     else startOcr()
   })
   globalShortcut.register('CommandOrControl+Shift+P', () => {
-    pausedForDictation = !pausedForDictation
-    pushState()
+    setPausedForLearning(!pausedForDictation)
   })
 }
 
@@ -1543,6 +2070,14 @@ function setupIpc() {
 
   ipcMain.handle('pet:setOpen', (_e, open: boolean) => {
     setPetOpen(!!open)
+  })
+
+  ipcMain.handle('pet:moveBy', (_e, dx: number, dy: number) => {
+    return movePetBy(Number(dx) || 0, Number(dy) || 0)
+  })
+
+  ipcMain.handle('pet:resizeTo', (_e, width: number, height: number) => {
+    return resizePetTo(Number(width) || petOpenSize.width, Number(height) || petOpenSize.height)
   })
 
   ipcMain.handle('pet:lookup', async (_e, word: string) => {
@@ -1613,6 +2148,8 @@ function setupIpc() {
     }
     console.log('[rehearse] region saved', physical)
     updateSettings({ region: physical })
+    // panel is shown explicitly below; don't let 'closed' race with it
+    regionRestoreMain = false
     // close picker first
     const rw = regionWindow
     regionWindow = null
@@ -1628,12 +2165,35 @@ function setupIpc() {
     positionHudAboveRegion(physical)
     createMaskWindow()
     positionMaskOverRegion(physical)
-    // auto preview cover so user sees result immediately
+    // Re-select path: openFreeformRegionPick called hideMask() which stops the
+    // legacy frame loop. If the live WebRTC stream also went stale while the
+    // picker was up, claudeStreamActive can stay true with a dead stream and
+    // the cover looks like "effects stopped working". Always re-exclude,
+    // restart the frame loop, and tell the mask renderer to rebind crop/stream
+    // to the new strip (position-only moves do not fire window.resize).
+    lastMaskFrameB64 = null
+    lastOcrText = '' // force fresh word feed for new strip
+    lastOcrFingerprint = ''
     if (maskWindow && !maskWindow.isDestroyed()) {
-      maskWindow.setOpacity(1)
+      maskExcludeOk = excludeWindowFromCapture(maskWindow) || maskExcludeOk
+      try {
+        maskWindow.setOpacity(1)
+      } catch {
+        /* ignore */
+      }
       maskWindow.showInactive()
+      // after bounds settle: rebind live crop/stream (renderer also debounces)
+      setTimeout(() => {
+        if (!maskWindow || maskWindow.isDestroyed()) return
+        maskExcludeOk = excludeWindowFromCapture(maskWindow) || maskExcludeOk
+        maskWindow.webContents.send('mask:regionChanged', physical)
+        pushMaskUpdate()
+      }, 150)
     }
     pushMaskUpdate()
+    startMaskFrameLoop()
+    showPet()
+    ensureWordFeed()
     pushState()
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show()
@@ -1902,6 +2462,8 @@ app.whenReady().then(() => {
   createOverlayWindow()
   hideOverlay()
   registerHotkeys()
+  // Preload Tesseract so first subtitle isn't a cold start
+  void warmOcr('eng')
 
   // If region already pinned, start true-mosaic cover immediately (agent QA + user resume)
   setTimeout(() => {

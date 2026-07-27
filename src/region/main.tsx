@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Free-form pick on a frozen screenshot (works with fullscreen movies).
  * Fixed: uses refs for drag end (no stale React state), Confirm button, robust shot load.
  */
@@ -24,7 +24,6 @@ function RegionApp() {
   const locale = useAppStore((s) => s.settings.locale)
   const [shot, setShot] = useState<ShotMeta | null>(null)
   const [error, setError] = useState<string>('')
-  const [dragging, setDragging] = useState(false)
   const [rect, setRect] = useState<{ x: number; y: number; width: number; height: number } | null>(
     null,
   )
@@ -32,10 +31,16 @@ function RegionApp() {
 
   const startRef = useRef<Pt | null>(null)
   const currentRef = useRef<Pt | null>(null)
+  const draggingRef = useRef(false)
   const imgRef = useRef<HTMLImageElement>(null)
   const shotRef = useRef<ShotMeta | null>(null)
   shotRef.current = shot
+  // keydown needs the latest rect without re-subscribing (a [rect] dep would
+  // re-run the shot fetch on every mousemove and hammer IPC during a drag)
+  const rectRef = useRef<typeof rect>(null)
+  rectRef.current = rect
 
+  // shot subscription: mount only
   useEffect(() => {
     const api = window.rehearse
     const off = api.onRegionShot?.((m) => {
@@ -54,18 +59,43 @@ function RegionApp() {
         if (m) setShot(m as ShotMeta)
       })
     }, 300)
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') void window.rehearse.cancelRegion()
-      if (e.key === 'Enter' && rect && rect.width >= 4) void confirmRect(rect)
-    }
-    window.addEventListener('keydown', onKey)
     return () => {
       off?.()
       clearTimeout(t)
-      window.removeEventListener('keydown', onKey)
     }
-  }, [rect])
+  }, [])
+
+  // keyboard + drag release outside the window: mount only
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') void window.rehearse.cancelRegion()
+      const r = rectRef.current
+      if (e.key === 'Enter' && r && r.width >= 4 && r.height >= 4) void confirmRect(r)
+    }
+    const onWinUp = () => endDrag()
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mouseup', onWinUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mouseup', onWinUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const endDrag = () => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    const s = startRef.current
+    const c = currentRef.current
+    if (s && c) {
+      setRect({
+        x: Math.min(s.x, c.x),
+        y: Math.min(s.y, c.y),
+        width: Math.abs(c.x - s.x),
+        height: Math.abs(c.y - s.y),
+      })
+    }
+  }
 
   const mapToPhysical = (cssX: number, cssY: number): Pt => {
     const s = shotRef.current
@@ -117,6 +147,7 @@ function RegionApp() {
   }
 
   const imgSrc = shot?.dataUrl || (shot?.filePath ? `file:///${shot.filePath.replace(/\\/g, '/')}` : '')
+  const ready = Boolean(rect && rect.width >= 4 && rect.height >= 4)
 
   if (!shot) {
     return (
@@ -169,15 +200,19 @@ function RegionApp() {
       }}
       onMouseDown={(e) => {
         if (e.button !== 0 || busy) return
+        // Buttons live inside this container. Without this guard, pressing
+        // "Confirm" bubbles up here, resets rect to 0×0, disables the button —
+        // and the click never fires. That was the "选好了点确认又重置" bug.
+        if ((e.target as HTMLElement).closest('[data-region-ui]')) return
         const p = { x: e.clientX, y: e.clientY }
         startRef.current = p
         currentRef.current = p
-        setDragging(true)
+        draggingRef.current = true
         setRect({ x: p.x, y: p.y, width: 0, height: 0 })
         setError('')
       }}
       onMouseMove={(e) => {
-        if (!dragging || !startRef.current) return
+        if (!draggingRef.current || !startRef.current) return
         const c = { x: e.clientX, y: e.clientY }
         currentRef.current = c
         const s = startRef.current
@@ -188,21 +223,7 @@ function RegionApp() {
           height: Math.abs(c.y - s.y),
         })
       }}
-      onMouseUp={() => {
-        if (!dragging) return
-        setDragging(false)
-        // do NOT auto-cancel on tiny drag — wait for Confirm
-        const s = startRef.current
-        const c = currentRef.current
-        if (s && c) {
-          setRect({
-            x: Math.min(s.x, c.x),
-            y: Math.min(s.y, c.y),
-            width: Math.abs(c.x - s.x),
-            height: Math.abs(c.y - s.y),
-          })
-        }
-      }}
+      onMouseUp={endDrag}
     >
       {imgSrc ? (
         <img
@@ -318,6 +339,8 @@ function RegionApp() {
       </div>
 
       <div
+        data-region-ui
+        onMouseDown={(e) => e.stopPropagation()}
         style={{
           position: 'absolute',
           bottom: 24,
@@ -330,17 +353,17 @@ function RegionApp() {
       >
         <button
           type="button"
-          disabled={!rect || rect.width < 4 || busy}
-          onClick={() => rect && void confirmRect(rect)}
+          disabled={!ready || busy}
+          onClick={() => rectRef.current && void confirmRect(rectRef.current)}
           style={{
             padding: '12px 22px',
             borderRadius: 12,
             border: 'none',
-            background: rect && rect.width >= 4 ? '#f5b942' : '#444',
+            background: ready ? '#f5b942' : '#444',
             color: '#0c0e14',
             fontWeight: 700,
             fontSize: 14,
-            cursor: rect && rect.width >= 4 ? 'pointer' : 'not-allowed',
+            cursor: ready ? 'pointer' : 'not-allowed',
           }}
         >
           {busy
@@ -357,6 +380,7 @@ function RegionApp() {
             setRect(null)
             startRef.current = null
             currentRef.current = null
+            draggingRef.current = false
           }}
           style={{
             padding: '12px 16px',

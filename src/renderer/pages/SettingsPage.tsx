@@ -58,6 +58,38 @@ export default function SettingsPage() {
       </section>
 
       <section className="card p-6 space-y-4">
+        <h2 className="font-medium">{locale === 'zh' ? 'Pip 煤球' : 'Pip pet'}</h2>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.petAutoOpenOnPause !== false}
+            onChange={(e) =>
+              void window.rehearse.updateSettings({ petAutoOpenOnPause: e.target.checked })
+            }
+          />
+          <span className="text-sm">
+            {locale === 'zh'
+              ? '暂停时自动打开对话框（Ctrl+Shift+P）'
+              : 'Auto-open panel on pause (Ctrl+Shift+P)'}
+          </span>
+        </label>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.petAutoCollapseOnPlay !== false}
+            onChange={(e) =>
+              void window.rehearse.updateSettings({ petAutoCollapseOnPlay: e.target.checked })
+            }
+          />
+          <span className="text-sm">
+            {locale === 'zh'
+              ? '继续播放 / 出新字幕时自动收起对话框（位置不跳）'
+              : 'Auto-collapse when play resumes / new line (no jump)'}
+          </span>
+        </label>
+      </section>
+
+      <section className="card p-6 space-y-4">
         <h2 className="font-medium">
           {locale === 'zh' ? '中文遮罩（核心）' : 'Chinese cover (core)'}
         </h2>

@@ -22,12 +22,13 @@ function OverlayApp() {
   const activeSession = useAppStore((s) => s.activeSession)
   const toast = useAppStore((s) => s.toast)
   const selectModeUntil = useAppStore((s) => s.selectModeUntil)
+  const pausedForDictation = useAppStore((s) => s.pausedForDictation)
   const [pendingUndo, setPendingUndo] = useState<string | null>(null)
-  const selectMode = Date.now() < selectModeUntil
+  const selectMode = Boolean(pausedForDictation) || Date.now() < selectModeUntil
 
   useEffect(() => {
     void window.rehearse?.setClickThrough(!selectMode)
-  }, [selectMode])
+  }, [selectMode, pausedForDictation, selectModeUntil])
 
   const capture = async (word: string) => {
     if (!word.trim()) return
@@ -57,7 +58,14 @@ function OverlayApp() {
         <div className="rounded-xl bg-black/70 border border-white/10 px-3 py-2 shadow-panel">
           <div className="flex items-center justify-between gap-2 text-[10px] text-mist-400 mb-1">
             <span>
-              {locale === 'zh' ? '点词（低阻力）' : 'Tap words'} · CN mask:
+              {pausedForDictation
+                ? locale === 'zh'
+                  ? '暂停选词中 · 点英文词收录'
+                  : 'Paused — tap EN words'
+                : locale === 'zh'
+                  ? '点词（低阻力）'
+                  : 'Tap words'}{' '}
+              · CN:
               <span className="text-amber-soft"> {settings.maskEffect || 'solid'}</span>
             </span>
             <button
